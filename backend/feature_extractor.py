@@ -36,7 +36,6 @@ def get_best_matching_thaat(chroma_vector, key_index):
     return best_thaat
 
 def extract_features_as_json(file_path, save_to_file=False):  
-
     y, sr = librosa.load(file_path, sr=None)
 
     # Beat and tempo
@@ -61,12 +60,13 @@ def extract_features_as_json(file_path, save_to_file=False):
 
     # Harmonic for chroma
     y_harmonic, _ = librosa.effects.hpss(y)
-    chroma = librosa.feature.chroma_cqt(y=y_harmonic, sr=sr).mean(axis=1)
-    key_index = chroma.argmax()
+    chroma = librosa.feature.chroma_cqt(y=y_harmonic, sr=sr)
+    chroma_mean = chroma.mean(axis=1)
+    key_index = chroma_mean.argmax()
     key = note_names[key_index]
 
     # Best thaat scale
-    scale_mode = get_best_matching_thaat(chroma, key_index)
+    scale_mode = get_best_matching_thaat(chroma_mean, key_index)
 
     # Time signature estimation (basic)
     def guess_time_signature(bt):
@@ -78,6 +78,9 @@ def extract_features_as_json(file_path, save_to_file=False):
     # Timbre
     centroid = float(librosa.feature.spectral_centroid(y=y, sr=sr).mean())
     bandwidth = float(librosa.feature.spectral_bandwidth(y=y, sr=sr).mean())
+
+    # Estimate chord progression
+    chords = estimate_chord_progression(y, sr, beat_times, chroma)
 
     # JSON output
     output = {
@@ -91,13 +94,42 @@ def extract_features_as_json(file_path, save_to_file=False):
         "spectral_bandwidth": bandwidth,
         "pitch_contour": [float(p) if p else None for p in pitch_contour[:len(rms_times)]],
         "velocity_rms": [float(v) for v in rms[:len(rms_times)]],
-        "time_axis": rms_times[:len(rms)].tolist()
+        "time_axis": rms_times[:len(rms)].tolist(),
+        "chord_progression": [{"time": t, "chord": c} for t, c in chords]
     }
 
     if save_to_file:
         with open("output_features.json", "w") as f:
             json.dump(output, f, indent=2)
     return json.dumps(output, indent=2)
+
+def estimate_chord_progression(y, sr, beat_times, chroma):
+    from collections import Counter
+
+    chord_labels = []
+    triads = {
+        'C': [0, 4, 7], 'C#': [1, 5, 8], 'D': [2, 6, 9], 'D#': [3, 7, 10],
+        'E': [4, 8, 11], 'F': [5, 9, 0], 'F#': [6, 10, 1], 'G': [7, 11, 2],
+        'G#': [8, 0, 3], 'A': [9, 1, 4], 'A#': [10, 2, 5], 'B': [11, 3, 6]
+    }
+
+    labels = list(triads.keys())
+    chords = []
+
+    for i in range(len(beat_times) - 1):
+        start = librosa.time_to_frames(beat_times[i], sr=sr)
+        end = librosa.time_to_frames(beat_times[i + 1], sr=sr)
+        segment = chroma[:, start:end]
+        avg_chroma = np.mean(segment, axis=1)
+        scores = {}
+        for label in labels:
+            indices = triads[label]
+            scores[label] = sum(avg_chroma[i] for i in indices)
+        best = max(scores, key=scores.get)
+        chords.append((float(beat_times[i]), best))
+
+    return chords
+
        
 # Example usage
 file_path = '/Users/bhuman/Desktop/`Perfect - Ed Sheeran.mp3'

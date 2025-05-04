@@ -3,9 +3,9 @@ import time
 import json
 import random
 import fluidsynth
+import atexit
 
-NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F',
-              'F#', 'G', 'G#', 'A', 'A#', 'B']
+NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
 THAAT_DICT = {
     "Major": [0, 2, 4, 5, 7, 9, 11],
@@ -23,142 +23,191 @@ THAAT_DICT = {
 should_generate = False
 generation_thread = None
 fs = None
-
 current_states = {}
 current_volumes = {}
 
 def is_channel_enabled(name):
-    states = current_states
-    if not states:
+    if not current_states:
         return True
-    if any(cfg.get('solo') for cfg in states.values()):
-        return states.get(name, {}).get('solo', False)
-    return not states.get(name, {}).get('mute', False)
-
-
-def fade_in(fs, target_volumes, channels, duration_sec=4.0):
-    steps = 20
-    interval = duration_sec / steps
-    for step in range(steps + 1):
-        for ch, name in channels.items():
-            target = int(target_volumes.get(name, 0.8) * 127)
-            fs.cc(ch, 7, int(target * step / steps))
-        time.sleep(interval)
-
-
-def fade_out_and_stop(fs, channels, duration_sec=4.0):
-    global should_generate
-    steps = 20
-    interval = duration_sec / steps
-    for step in range(steps + 1):
-        for ch in channels:
-            fs.cc(ch, 7, int(127 * (1 - step / steps)))
-        time.sleep(interval)
-    fs.system_reset()
-    fs.delete()
-    should_generate = False
-
+    if any(cfg.get('solo') for cfg in current_states.values()):
+        return current_states.get(name, {}).get('solo', False)
+    return not current_states.get(name, {}).get('mute', False)
 
 def start_infinite_generation(features_json, instrument_states, instrument_volumes):
     global should_generate, generation_thread, fs, current_states, current_volumes
+
     if generation_thread and generation_thread.is_alive():
         return
+
     should_generate = True
     current_states = instrument_states
     current_volumes = instrument_volumes
 
-    def generator():
+    def generator() :
         features = json.loads(features_json)
         key = features.get("key", "C")
         scale = features.get("scale_mode", "Major")
-        tempo = float(features.get("tempo_bpm", 90))
+        tempo = float(features.get("tempo_bpm", 80))
         beat_duration = 60.0 / tempo
 
         root_index = NOTE_NAMES.index(key)
         scale_degrees = THAAT_DICT.get(scale, THAAT_DICT["Major"])
         scale_notes = [(root_index + interval) % 12 for interval in scale_degrees]
 
+        # Expanded note ranges for expressive phrasing
         melody_notes = [12 * o + n for o in range(5, 7) for n in scale_notes]
-        bass_note = 12 * 2 + scale_notes[0]
-        pad_chord = [12 * 4 + scale_notes[i % len(scale_notes)] for i in (0, 2, 4)]
-        guitar_arpeggio = [12 * 4 + n for n in scale_notes[:4]]
-        choir_notes = [12 * 5 + scale_notes[0]]
+        bass_notes = [12 * 2 + n for n in scale_notes[:3]]
+        pad_chords = [[12 * 4 + scale_notes[i % len(scale_notes)] for i in (0, 2, 4)] for _ in range(4)]
+        guitar_patterns = [[12 * 4 + n for n in scale_notes[i:i+3]] for i in range(0, len(scale_notes)-2, 3)]
+
+        phrase_length = 16  # beats per phrase (e.g., 4 bars of 4/4)
+        phrase_position = 0
 
         fs = fluidsynth.Synth()
         fs.start(driver="coreaudio")
         sfid = fs.sfload("/Users/bhuman/soundfonts/GeneralUser.sf2")
-        fs.program_select(0, sfid, 0, 0)     # Piano
-        fs.program_select(1, sfid, 0, 32)    # Bass
-        fs.program_select(2, sfid, 0, 89)    # Pad
-        fs.program_select(3, sfid, 0, 24)    # Nylon Guitar
-        fs.program_select(4, sfid, 0, 52)    # Choir
-
-        print("🎻 Multi-instrument generation started")
-
-        channels = {0: "Keys", 1: "Bass", 2: "Pad", 3: "Guitar", 4: "Flute"}
-        for ch in channels:
-            fs.cc(ch, 7, 0)  # initial silent
-
-        threading.Thread(target=fade_in, args=(fs, current_volumes, channels)).start()
-
-        i = 0
-        pad_counter = bass_counter = guitar_counter = choir_counter = 0
+        fs.program_select(0, sfid, 0, 73)  # Flute
+        fs.program_select(1, sfid, 0, 48)  # Strings / Pad
+        fs.program_select(2, sfid, 0, 25)  # Guitar
+        fs.program_select(3, sfid, 0, 32)  # Bass
 
         while should_generate:
-            note = random.choice(melody_notes)
-            vel = random.randint(85, 115)
-            dur = beat_duration * random.choice([0.25, 0.5, 0.75, 1])
+            phrase_stage = (phrase_position // 4) % 4  # 0 to 3 (intro, build, climax, resolve)
+            melody_intensity = [0.3, 0.6, 1.0, 0.5][phrase_stage]
 
-            if is_channel_enabled("Keys"):
-                fs.noteon(0, note, vel)
-                time.sleep(dur)
-                fs.noteoff(0, note)
-            else:
-                time.sleep(dur)
+            # Melody - richer during climax
+            if is_channel_enabled("melody"):
+                note = random.choice(melody_notes)
+                velocity = int(50 + melody_intensity * 50)
+                fs.noteon(0, note, velocity)
 
-            bass_counter += dur
-            if bass_counter >= beat_duration * 4 and is_channel_enabled("Bass"):
-                fs.noteon(1, bass_note, random.randint(90, 110))
-                time.sleep(beat_duration * 0.9)
-                fs.noteoff(1, bass_note)
-                bass_counter = 0
+            # Chord Pad - slower rate
+            if phrase_position % 8 == 0 and is_channel_enabled("pad"):
+                chord = random.choice(pad_chords)
+                for note in chord:
+                    fs.noteon(1, note, int(40 + melody_intensity * 40))
 
-            pad_counter += dur
-            if pad_counter >= beat_duration * 8 and is_channel_enabled("Pad"):
-                for n in pad_chord:
-                    fs.noteon(2, n, random.randint(55, 75))
-                time.sleep(beat_duration * 3)
-                for n in pad_chord:
-                    fs.noteoff(2, n)
-                pad_counter = 0
+            # Guitar - moderate rhythm
+            if phrase_position % 4 == 0 and is_channel_enabled("guitar"):
+                notes = random.choice(guitar_patterns)
+                for note in notes:
+                    fs.noteon(2, note, int(50 + melody_intensity * 40))
 
-            guitar_counter += dur
-            if guitar_counter >= beat_duration * 2 and is_channel_enabled("Guitar"):
-                for gn in guitar_arpeggio:
-                    fs.noteon(3, gn, random.randint(70, 90))
-                    time.sleep(beat_duration * 0.3)
-                    fs.noteoff(3, gn)
-                guitar_counter = 0
+            # Bass - simple root motion
+            if phrase_position % 4 == 0 and is_channel_enabled("bass"):
+                note = random.choice(bass_notes)
+                fs.noteon(3, note, int(40 + melody_intensity * 30))
 
-            choir_counter += dur
-            if choir_counter >= beat_duration * 16 and is_channel_enabled("Flute"):
-                for cn in choir_notes:
-                    fs.noteon(4, cn, random.randint(40, 60))
-                time.sleep(beat_duration * 5)
-                for cn in choir_notes:
-                    fs.noteoff(4, cn)
-                choir_counter = 0
+            time.sleep(beat_duration)
+            phrase_position += 1
 
+            features = json.loads(features_json)
+            key = features.get("key", "C")
+            scale = features.get("scale_mode", "Major")
+            tempo = float(features.get("tempo_bpm", 80))
+            beat_duration = 60.0 / tempo
+
+            root_index = NOTE_NAMES.index(key)
+            scale_degrees = THAAT_DICT.get(scale, THAAT_DICT["Major"])
+            scale_notes = [(root_index + interval) % 12 for interval in scale_degrees]
+
+            melody_notes = [12 * o + n for o in range(5, 7) for n in scale_notes]
+            bass_note = 12 * 2 + scale_notes[0]
+            pad_chord = [12 * 4 + scale_notes[i % len(scale_notes)] for i in (0, 2, 4)]
+            guitar_notes = [12 * 4 + n for n in scale_notes[:4]]
+            flute_note = 12 * 5 + scale_notes[0]
+
+            fs = fluidsynth.Synth()
+            fs.start(driver="coreaudio")
+            sfid = fs.sfload("/Users/bhuman/soundfonts/GeneralUser.sf2")
+            fs.program_select(0, sfid, 0, 0)     # Piano / Keys
+            fs.program_select(1, sfid, 0, 32)    # Bass
+            fs.program_select(2, sfid, 0, 89)    # Pad
+            fs.program_select(3, sfid, 0, 24)    # Guitar
+            fs.program_select(4, sfid, 0, 52)    # Flute/Choir
+
+            next_melody = time.time() + 0.2
+            next_bass = time.time() + 2.0
+            next_pad = time.time() + 4.0
+            next_guitar = time.time() + 3.0
+            next_flute = time.time() + 6.0
+
+            print("🎶 Smooth generation started")
+
+            while should_generate:
+                now = time.time()
+
+                if now >= next_melody and is_channel_enabled("Keys"):
+                    note = random.choice(melody_notes)
+                    vel = random.randint(85, 115)
+                    dur = random.uniform(0.3, 0.6)
+                    fs.noteon(0, note, vel)
+                    threading.Timer(dur, lambda: fs.noteoff(0, note)).start()
+                    next_melody = now + random.uniform(0.4, 1.0)
+
+                if now >= next_bass and is_channel_enabled("Bass"):
+                    vel = random.randint(70, 100)
+                    fs.noteon(1, bass_note, vel)
+                    threading.Timer(0.8, lambda: fs.noteoff(1, bass_note)).start()
+                    next_bass = now + random.uniform(2.0, 4.0)
+
+                if now >= next_pad and is_channel_enabled("Pad"):
+                    for n in pad_chord:
+                        fs.noteon(2, n, random.randint(40, 70))
+                    threading.Timer(2.5, lambda: [fs.noteoff(2, n) for n in pad_chord]).start()
+                    next_pad = now + random.uniform(6.0, 10.0)
+
+                if now >= next_guitar and is_channel_enabled("Guitar"):
+                    for gn in guitar_notes:
+                        fs.noteon(3, gn, random.randint(60, 90))
+                        threading.Timer(0.3, lambda n=gn: fs.noteoff(3, n)).start()
+                        time.sleep(0.2)
+                    next_guitar = now + random.uniform(4.0, 6.0)
+
+                if now >= next_flute and is_channel_enabled("Flute"):
+                    fs.noteon(4, flute_note, random.randint(50, 75))
+                    threading.Timer(2.0, lambda: fs.noteoff(4, flute_note)).start()
+                    next_flute = now + random.uniform(10.0, 15.0)
+
+                time.sleep(0.05)
+
+            fs.system_reset()
+            fs.delete()
+            print("🛑 Generation stopped")
 
     generation_thread = threading.Thread(target=generator)
     generation_thread.start()
 
-
 def stop_infinite_generation():
-    global fs
-    channels = {0: "Keys", 1: "Bass", 2: "Pad", 3: "Guitar", 4: "Flute"}
+    global should_generate, fs, generation_thread
+
+    should_generate = False
+
+    # Safely stop thread
+    if generation_thread and generation_thread.is_alive():
+        generation_thread.join(timeout=1.0)
+
+    # Turn off all notes and stop audio
     if fs:
-        fade_out_and_stop(fs, channels)
-    else:
-        global should_generate
-        should_generate = False
+        try:
+            for chan in range(16):
+                fs.cc(chan, 123, 0)  # All notes off
+            fs.delete()
+        except Exception as e:
+            print(f"Error during FluidSynth cleanup: {e}")
+        fs = None
+
+    print("✅ Generation stopped. All notes off.")
+
+def cleanup_fluidsynth():
+    global fs
+    if fs:
+        try:
+            for chan in range(16):
+                fs.cc(chan, 123, 0)
+            fs.delete()
+        except Exception as e:
+            print(f"Error cleaning up fluidsynth: {e}")
+        fs = None
+
+atexit.register(cleanup_fluidsynth)

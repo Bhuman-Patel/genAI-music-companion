@@ -1,8 +1,7 @@
 // lib/pages/music_control_page.dart
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'dart:io';
-import 'dart:convert';
+import 'dart:typed_data';
 import '../services/api_service.dart';
 
 class MusicControlPage extends StatefulWidget {
@@ -11,7 +10,8 @@ class MusicControlPage extends StatefulWidget {
 }
 
 class _MusicControlPageState extends State<MusicControlPage> {
-  String? _audioFilePath;
+  String? _fileName;
+  Uint8List? _fileBytes;
   List<String> instruments = ['Flute', 'Guitar', 'Pad', 'Bass', 'Keys'];
   Map<String, bool> isEnabled = {};
   Map<String, bool> isMuted = {};
@@ -33,11 +33,11 @@ class _MusicControlPageState extends State<MusicControlPage> {
 
   Future<void> _pickAudioFile() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.audio);
-    if (result != null && result.files.single.path != null) {
-      setState(() => _audioFilePath = result.files.single.path);
+    if (result != null && result.files.single.bytes != null) {
+      _fileName = result.files.single.name;
+      _fileBytes = result.files.single.bytes;
 
-      final file = File(_audioFilePath!);
-      final success = await ApiService.analyzeAudio(file);
+      final success = await ApiService.analyzeAudioBytes(_fileName!, _fileBytes!);
       if (success) {
         setState(() => isReadyToPlay = true);
       }
@@ -152,10 +152,10 @@ class _MusicControlPageState extends State<MusicControlPage> {
                     label: Text("Upload Audio File"),
                     onPressed: _pickAudioFile,
                   ),
-                  if (_audioFilePath != null)
+                  if (_fileName != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
-                      child: Text('Selected: ${_audioFilePath!.split("/").last}'),
+                      child: Text('Selected: $_fileName'),
                     ),
                   SizedBox(height: 24),
                   ElevatedButton.icon(

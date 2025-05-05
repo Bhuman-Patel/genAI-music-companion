@@ -1,6 +1,7 @@
 // lib/services/api_service.dart
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 class ApiService {
@@ -44,4 +45,17 @@ class ApiService {
     final response = await http.post(uri);
     print("⏹ Stop: ${response.body}");
   }
+
+  // At the bottom of api_service.dart
+  static Future<bool> analyzeAudioBytes(String filename, Uint8List bytes) async {
+    final uri = Uri.parse('$baseUrl/analyze-audio');
+    final request = http.MultipartRequest('POST', uri)
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+
+    final response = await request.send();
+    final body = await response.stream.bytesToString();
+    print("📤 Analyze Audio Response: $body");
+    return response.statusCode == 200 && body.contains('json_result');
+  }
+
 }

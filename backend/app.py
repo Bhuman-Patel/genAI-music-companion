@@ -78,11 +78,31 @@ def analyze_audio():
     return jsonify({"error": "Invalid file format"}), 400
 
 @app.route('/start-generation', methods=['POST'])
-def start_gen():
-    if not latest_features_json:
-        return jsonify({"error": "Analyze audio first"}), 400
-    start_infinite_generation(latest_features_json, instrument_states, instrument_volumes)
-    return jsonify({"status": "generation_started"})
+def start_generation():
+    global latest_features_json, instrument_states, instrument_volumes
+
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "No JSON body found"}), 400
+
+        features_json = data.get("features_json")
+        if not features_json:
+            return jsonify({"error": "Missing 'features_json' in request body"}), 400
+
+        instrument_states = data.get("instrument_states", {})
+        instrument_volumes = data.get("instrument_volumes", {})
+
+        latest_features_json = features_json
+        print("🎵 Starting generation with features:", features_json)
+
+        start_infinite_generation(features_json, instrument_states, instrument_volumes)
+
+        return jsonify({"status": "generation started"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/stop-generation', methods=['POST'])

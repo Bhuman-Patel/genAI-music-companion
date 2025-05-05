@@ -5,21 +5,6 @@ import random
 import fluidsynth
 import atexit
 
-NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-
-THAAT_DICT = {
-    "Major": [0, 2, 4, 5, 7, 9, 11],
-    "Minor": [0, 2, 3, 5, 7, 8, 10],
-    "Kalyan": [0, 2, 4, 6, 7, 9, 11],
-    "Khamaj": [0, 2, 4, 5, 7, 9, 10],
-    "Bhairav": [0, 1, 4, 5, 7, 8, 11],
-    "Bhairavi": [0, 1, 3, 5, 7, 8, 10],
-    "Todi": [0, 1, 3, 6, 7, 8, 11],
-    "Purvi": [0, 1, 4, 6, 7, 8, 11],
-    "Marwa": [0, 1, 4, 6, 7, 9, 11],
-    "Kaafi": [0, 2, 3, 5, 7, 9, 10],
-}
-
 should_generate = False
 generation_thread = None
 fs = None
@@ -32,6 +17,92 @@ def is_channel_enabled(name):
     if any(cfg.get('solo') for cfg in current_states.values()):
         return current_states.get(name, {}).get('solo', False)
     return not current_states.get(name, {}).get('mute', False)
+
+
+def fs_grace_note(fs, channel, note, velocity=90, duration=0.1):
+    grace = note - 1
+    fs.noteon(channel, grace, velocity)
+    time.sleep(duration)
+    fs.noteoff(channel, grace)
+
+def fs_mordent(fs, channel, note, velocity=90, duration=0.1):
+    upper = note + 1
+    fs.noteon(channel, note, velocity)
+    time.sleep(duration)
+    fs.noteon(channel, upper, velocity)
+    time.sleep(duration)
+    fs.noteoff(channel, upper)
+    time.sleep(duration)
+    fs.noteoff(channel, note)
+
+def fs_andolan(fs, channel, note, velocity=90, duration=0.4, oscillations=3):
+    fs.noteon(channel, note, velocity)
+    for _ in range(oscillations):
+        fs.noteoff(channel, note)
+        time.sleep(duration / (oscillations * 2))
+        fs.noteon(channel, note, velocity)
+        time.sleep(duration / (oscillations * 2))
+    fs.noteoff(channel, note)
+
+def fs_meend(fs, channel, note1, note2, steps=4, velocity=90, duration=0.4):
+    interval = (note2 - note1) / steps
+    for i in range(steps):
+        n = int(note1 + i * interval)
+        fs.noteon(channel, n, velocity)
+        time.sleep(duration / steps)
+        fs.noteoff(channel, n)
+
+def fs_gamak(fs, channel, note, velocity=90, duration=0.3, oscillations=4):
+    lower = note - 1
+    for _ in range(oscillations):
+        fs.noteon(channel, note, velocity)
+        time.sleep(duration / (oscillations * 2))
+        fs.noteoff(channel, note)
+        fs.noteon(channel, lower, velocity)
+        time.sleep(duration / (oscillations * 2))
+        fs.noteoff(channel, lower)
+    
+
+
+def play_expressive_melody(fs, melody_notes, beat_duration, phrase_position, previous_note=None):
+    note = random.choice(melody_notes)
+    velocity = 90
+    channel = 0
+
+    # Ornament rules
+    ornament = None
+
+    # 1. Sustained note → Vibrato (Andolan)
+    if phrase_position % 4 == 3:
+        ornament = fs_andolan
+
+    # 2. Phrase start → Grace note
+    elif phrase_position % 4 == 0:
+        ornament = fs_grace_note
+
+    # 3. Repeated note → Mordent
+    elif previous_note is not None and abs(note - previous_note) <= 1:
+        ornament = fs_mordent
+
+    # 4. Large jump → Meend
+    elif previous_note is not None and abs(note - previous_note) >= 4:
+        ornament = lambda fs, ch, n: fs_meend(fs, ch, previous_note, n)
+
+    # 5. Phrase end → Gamak
+    elif phrase_position % 8 == 7:
+        ornament = fs_gamak
+
+    # Play with selected ornament
+    if ornament:
+        ornament(fs, channel, note)
+    else:
+        fs.noteon(channel, note, velocity)
+        time.sleep(beat_duration * 0.9)
+        fs.noteoff(channel, note)
+
+    return note
+  # track for next round
+
 
 def start_infinite_generation(features_json, instrument_states, instrument_volumes):
     global should_generate, generation_thread, fs, current_states, current_volumes
@@ -62,6 +133,7 @@ def start_infinite_generation(features_json, instrument_states, instrument_volum
 
         phrase_length = 16  # beats per phrase (e.g., 4 bars of 4/4)
         phrase_position = 0
+        previous_note = None
 
         fs = fluidsynth.Synth()
         fs.start(driver="coreaudio")
@@ -77,9 +149,8 @@ def start_infinite_generation(features_json, instrument_states, instrument_volum
 
             # Melody - richer during climax
             if is_channel_enabled("melody"):
-                note = random.choice(melody_notes)
-                velocity = int(50 + melody_intensity * 50)
-                fs.noteon(0, note, velocity)
+                note = play_expressive_melody(fs, melody_notes, beat_duration, phrase_position, previous_note)
+                previous_note = note
 
             # Chord Pad - slower rate
             if phrase_position % 8 == 0 and is_channel_enabled("pad"):
@@ -108,10 +179,12 @@ def start_infinite_generation(features_json, instrument_states, instrument_volum
             beat_duration = 60.0 / tempo
 
             root_index = NOTE_NAMES.index(key)
-            scale_degrees = THAAT_DICT.get(scale, THAAT_DICT["Major"])
-            scale_notes = [(root_index + interval) % 12 for interval in scale_degrees]
+            from thaat_key import tonal_values
 
-            melody_notes = [12 * o + n for o in range(5, 7) for n in scale_notes]
+        melody_base = tonal_values(key, scale)
+        melody_notes = []
+        for octave in range(5, 7):
+            melody_notes += [note + 12 * (octave - 5) for note in melody_base]
             bass_note = 12 * 2 + scale_notes[0]
             pad_chord = [12 * 4 + scale_notes[i % len(scale_notes)] for i in (0, 2, 4)]
             guitar_notes = [12 * 4 + n for n in scale_notes[:4]]
@@ -138,7 +211,7 @@ def start_infinite_generation(features_json, instrument_states, instrument_volum
                 now = time.time()
 
                 if now >= next_melody and is_channel_enabled("Keys"):
-                    note = random.choice(melody_notes)
+                    previous_note = play_expressive_melody(fs, melody_notes, beat_duration, phrase_position, previous_note)
                     vel = random.randint(85, 115)
                     dur = random.uniform(0.3, 0.6)
                     fs.noteon(0, note, vel)

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'pages/music_control_page.dart';
-
+import 'package:music_companion_ui/pages/music_control_page.dart';
 void main() => runApp(MusicAssistantApp());
 
 class MusicAssistantApp extends StatelessWidget {

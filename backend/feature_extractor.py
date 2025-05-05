@@ -7,7 +7,7 @@ midi_mapping = {
     "F#": 66, "G": 67, "G#": 68, "A": 69, "A#": 70, "B": 71
 }
 
-note_names = list(midi_mapping.keys())
+NOTE_NAMES = list(midi_mapping.keys())
 
 thaat_dict = {
     "Major": [0, 2, 4, 5, 7, 9, 11],     # Ionian
@@ -63,7 +63,7 @@ def extract_features_as_json(file_path, save_to_file=False):
     chroma = librosa.feature.chroma_cqt(y=y_harmonic, sr=sr)
     chroma_mean = chroma.mean(axis=1)
     key_index = chroma_mean.argmax()
-    key = note_names[key_index]
+    key = NOTE_NAMES[key_index]
 
     # Best thaat scale
     scale_mode = get_best_matching_thaat(chroma_mean, key_index)

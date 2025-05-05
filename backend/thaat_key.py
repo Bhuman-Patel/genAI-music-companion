@@ -5,7 +5,7 @@ midi_mapping = {
         "F#": 66, "G": 67, "G#": 68, "A": 69, "A#": 70, "B": 71
     }
 
-thaat_dict = {
+THAAT_DICT = {
 
         # "Bilawal": [0, 2, 4, 5, 7, 9, 11],   # Major Scale (Ionian)
         "Major": [0, 2, 4, 5, 7, 9, 11],   # Major Scale (Ionian)
@@ -23,4 +23,4 @@ thaat_dict = {
 def tonal_values(key_name, scale_name):
     
     key_place = midi_mapping[key_name]
-    return tonal_values[ key_place + thaat_dict[scale_name]]
+    return tonal_values[ key_place + THAAT_DICT[scale_name]]

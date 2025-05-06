@@ -5,9 +5,7 @@ import random
 import fluidsynth
 import atexit
 from thaat_key import THAAT_DICT
-
-
-NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+from thaat_key import NOTE_NAMES
 
 should_generate = False
 generation_thread = None

@@ -1,0 +1,19 @@
+# Flutter
+build/
+.dart_tool/
+.flutter-plugins
+.packages
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# General
+.DS_Store
+
+# Archives
+*.zip
+*.tar.gz
+*.rar

@@ -5,6 +5,8 @@ midi_mapping = {
         "F#": 66, "G": 67, "G#": 68, "A": 69, "A#": 70, "B": 71
     }
 
+NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
 THAAT_DICT = {
 
         # "Bilawal": [0, 2, 4, 5, 7, 9, 11],   # Major Scale (Ionian)

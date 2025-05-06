@@ -35,7 +35,7 @@ def get_best_matching_thaat(chroma_vector, key_index):
             best_thaat = name
     return best_thaat
 
-def extract_features_as_json(file_path, save_to_file=False):  
+def extract_features_as_json(file_path, save_to_file=True):  
     y, sr = librosa.load(file_path, sr=None)
 
     # Beat and tempo
